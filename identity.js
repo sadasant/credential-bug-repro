@@ -19,6 +19,8 @@ var crypto__default = _interopDefault(crypto);
 var child_process = require('child_process');
 var os = _interopDefault(require('os'));
 var path$2 = _interopDefault(require('path'));
+var msalNode = require('@azure/msal-node');
+require('axios');
 var events = _interopDefault(require('events'));
 var util = _interopDefault(require('util'));
 var tty = _interopDefault(require('tty'));
@@ -30,7 +32,6 @@ var zlib = _interopDefault(require('zlib'));
 var querystring = _interopDefault(require('querystring'));
 var url = _interopDefault(require('url'));
 var http = _interopDefault(require('http'));
-var msalNode = require('@azure/msal-node');
 var open = _interopDefault(require('open'));
 
 // Copyright (c) Microsoft Corporation.
@@ -538,6 +539,15 @@ class ClientSecretCredential {
 }
 
 // Copyright (c) Microsoft Corporation.
+function checkTenantId(logger, tenantId) {
+    if (!tenantId.match(/^[0-9a-zA-Z-.:/]+$/)) {
+        const error = new Error("Invalid tenant id provided. You can locate your tenant id by following the instructions listed here: https://docs.microsoft.com/partner-center/find-ids-and-domain-names.");
+        logger.info(formatError(error));
+        throw error;
+    }
+}
+
+// Copyright (c) Microsoft Corporation.
 const SelfSignedJwtLifetimeMins = 10;
 function timestampInSeconds(date) {
     return Math.floor(date.getTime() / 1000);
@@ -566,6 +576,7 @@ class ClientCertificateCredential {
      * @param options Options for configuring the client which makes the authentication request.
      */
     constructor(tenantId, clientId, certificatePath, options) {
+        checkTenantId(logger$3, tenantId);
         this.identityClient = new IdentityClient(options);
         this.tenantId = tenantId;
         this.clientId = clientId;
@@ -590,7 +601,7 @@ class ClientCertificateCredential {
             .digest("hex")
             .toUpperCase();
         this.certificateX5t = Buffer.from(this.certificateThumbprint, "hex").toString("base64");
-        if (options && options.includeX5c) {
+        if (options && options.sendCertificateChain) {
             this.certificateX5c = publicKeys;
         }
     }
@@ -703,6 +714,7 @@ class UsernamePasswordCredential {
      * @param options Options for configuring the client which makes the authentication request.
      */
     constructor(tenantIdOrName, clientId, username, password, options) {
+        checkTenantId(logger$4, tenantIdOrName);
         this.identityClient = new IdentityClient(options);
         this.tenantId = tenantIdOrName;
         this.clientId = clientId;
@@ -810,6 +822,9 @@ class EnvironmentCredential {
         const assigned = processEnvVars(AllSupportedEnvironmentVariables).assigned.join(", ");
         logger$5.info(`Found the following environment variables: ${assigned}`);
         const tenantId = process.env.AZURE_TENANT_ID, clientId = process.env.AZURE_CLIENT_ID, clientSecret = process.env.AZURE_CLIENT_SECRET;
+        if (tenantId) {
+            checkTenantId(logger$5, tenantId);
+        }
         if (tenantId && clientId && clientSecret) {
             logger$5.info(`Invoking ClientSecretCredential with tenant ID: ${tenantId}, clientId: ${clientId} and clientSecret: [REDACTED]`);
             this._credential = new ClientSecretCredential(tenantId, clientId, clientSecret, options);
@@ -1050,52 +1065,13 @@ const imdsMsi = {
 };
 
 // Copyright (c) Microsoft Corporation.
-const logger$8 = credentialLogger("ManagedIdentityCredential - AppServiceMSI 2019");
+const logger$8 = credentialLogger("ManagedIdentityCredential - AppServiceMSI 2017");
 function expiresInParser$2(requestBody) {
-    // Parses a string representation of the seconds since epoch into a number value
-    return Number(requestBody.expires_on);
-}
-function prepareRequestOptions$2(resource, clientId) {
-    const queryParameters = {
-        resource,
-        "api-version": "2019-08-01"
-    };
-    if (clientId) {
-        queryParameters.client_id = clientId;
-    }
-    return {
-        url: process.env.IDENTITY_ENDPOINT,
-        method: "GET",
-        queryParameters,
-        headers: {
-            Accept: "application/json",
-            "X-IDENTITY-HEADER": process.env.IDENTITY_HEADER
-        }
-    };
-}
-const appServiceMsi2019 = {
-    isAvailable() {
-        return tslib.__awaiter(this, void 0, void 0, function* () {
-            const env = process.env;
-            return Boolean(env.IDENTITY_ENDPOINT && env.IDENTITY_HEADER);
-        });
-    },
-    getToken(identityClient, resource, clientId, getTokenOptions = {}) {
-        return tslib.__awaiter(this, void 0, void 0, function* () {
-            logger$8.info(`Using the endpoint and the secret coming form the environment variables: IDENTITY_ENDPOINT=${process.env.IDENTITY_ENDPOINT} and IDENTITY_HEADER=[REDACTED].`);
-            return msiGenericGetToken(identityClient, prepareRequestOptions$2(resource, clientId), expiresInParser$2, getTokenOptions);
-        });
-    }
-};
-
-// Copyright (c) Microsoft Corporation.
-const logger$9 = credentialLogger("ManagedIdentityCredential - AppServiceMSI 2017");
-function expiresInParser$3(requestBody) {
     // Parse a date format like "06/20/2019 02:57:58 +00:00" and
     // convert it into a JavaScript-formatted date
     return Date.parse(requestBody.expires_on);
 }
-function prepareRequestOptions$3(resource, clientId) {
+function prepareRequestOptions$2(resource, clientId) {
     const queryParameters = {
         resource,
         "api-version": "2017-09-01"
@@ -1122,19 +1098,17 @@ const appServiceMsi2017 = {
     },
     getToken(identityClient, resource, clientId, getTokenOptions = {}) {
         return tslib.__awaiter(this, void 0, void 0, function* () {
-            logger$9.info(`Using the endpoint and the secret coming form the environment variables: MSI_ENDPOINT=${process.env.MSI_ENDPOINT} and MSI_SECRET=[REDACTED].`);
-            return msiGenericGetToken(identityClient, prepareRequestOptions$3(resource, clientId), expiresInParser$3, getTokenOptions);
+            logger$8.info(`Using the endpoint and the secret coming form the environment variables: MSI_ENDPOINT=${process.env.MSI_ENDPOINT} and MSI_SECRET=[REDACTED].`);
+            return msiGenericGetToken(identityClient, prepareRequestOptions$2(resource, clientId), expiresInParser$2, getTokenOptions);
         });
     }
 };
 
 // Copyright (c) Microsoft Corporation.
-const logger$a = credentialLogger("ManagedIdentityCredential - ArcMSI");
-const defaultArcMsiEndpoint = "http://localhost:40342/metadata/identity/oauth2/token";
-const arcMsiEndpoint = process.env.IDENTITY_ENDPOINT || defaultArcMsiEndpoint;
+const logger$9 = credentialLogger("ManagedIdentityCredential - ArcMSI");
 // Azure Arc MSI doesn't have a special expiresIn parser.
-const expiresInParser$4 = undefined;
-function prepareRequestOptions$4(resource, clientId) {
+const expiresInParser$3 = undefined;
+function prepareRequestOptions$3(resource, clientId) {
     const queryParameters = {
         resource,
         "api-version": azureArcAPIVersion
@@ -1143,7 +1117,8 @@ function prepareRequestOptions$4(resource, clientId) {
         queryParameters.client_id = clientId;
     }
     return {
-        url: arcMsiEndpoint,
+        // Should be similar to: http://localhost:40342/metadata/identity/oauth2/token
+        url: process.env.IDENTITY_ENDPOINT,
         method: "GET",
         queryParameters,
         headers: {
@@ -1165,52 +1140,47 @@ function filePathRequest(identityClient, requestPrepareOptions) {
     return tslib.__awaiter(this, void 0, void 0, function* () {
         const response = yield identityClient.sendRequest(identityClient.createWebResource(requestPrepareOptions));
         if (response.status !== 401) {
-            throw new AuthenticationError(response.status, "To authenticate with Azure Arc MSI, status code 401 is expected on the first request.");
+            let message = "";
+            if (response.bodyAsText) {
+                message = ` Response: ${response.bodyAsText}`;
+            }
+            throw new AuthenticationError(response.status, `To authenticate with Azure Arc MSI, status code 401 is expected on the first request.${message}`);
         }
         const authHeader = response.headers.get("www-authenticate") || "";
         return authHeader.split("=").slice(1)[0];
     });
 }
 const arcMsi = {
-    isAvailable(identityClient, resource, clientId, getTokenOptions = {}) {
+    isAvailable() {
         return tslib.__awaiter(this, void 0, void 0, function* () {
-            // To check that the Arc MSI is available, we confirm that we're able to read the token if requested.
-            const requestOptions = Object.assign({ disableJsonStringifyOnBody: true, deserializationMapper: undefined, abortSignal: getTokenOptions.abortSignal, spanOptions: getTokenOptions.tracingOptions && getTokenOptions.tracingOptions.spanOptions }, prepareRequestOptions$4(resource, clientId));
-            try {
-                const filePath = yield filePathRequest(identityClient, requestOptions);
-                return Boolean(filePath);
-            }
-            catch (e) {
-                // Ignoring errors in the availability function.
-            }
-            return false;
+            return Boolean(process.env.IMDS_ENDPOINT && process.env.IDENTITY_ENDPOINT);
         });
     },
     getToken(identityClient, resource, clientId, getTokenOptions = {}) {
         return tslib.__awaiter(this, void 0, void 0, function* () {
-            logger$a.info(`Using the Azure Arc MSI to authenticate.`);
-            const requestOptions = Object.assign({ disableJsonStringifyOnBody: true, deserializationMapper: undefined, abortSignal: getTokenOptions.abortSignal, spanOptions: getTokenOptions.tracingOptions && getTokenOptions.tracingOptions.spanOptions }, prepareRequestOptions$4(resource, clientId));
+            logger$9.info(`Using the Azure Arc MSI to authenticate.`);
+            const requestOptions = Object.assign({ disableJsonStringifyOnBody: true, deserializationMapper: undefined, abortSignal: getTokenOptions.abortSignal, spanOptions: getTokenOptions.tracingOptions && getTokenOptions.tracingOptions.spanOptions }, prepareRequestOptions$3(resource, clientId));
             const filePath = yield filePathRequest(identityClient, requestOptions);
             if (!filePath) {
                 throw new Error("Azure Arc MSI failed to find the token file.");
             }
             const key = yield readFileAsync(filePath, { encoding: "utf-8" });
             requestOptions.headers["Authorization"] = `Basic ${key}`;
-            return msiGenericGetToken(identityClient, requestOptions, expiresInParser$4, getTokenOptions);
+            return msiGenericGetToken(identityClient, requestOptions, expiresInParser$3, getTokenOptions);
         });
     }
 };
 
 // Copyright (c) Microsoft Corporation.
-const logger$b = credentialLogger("ManagedIdentityCredential - Fabric MSI");
-function expiresInParser$5(requestBody) {
+const logger$a = credentialLogger("ManagedIdentityCredential - Fabric MSI");
+function expiresInParser$4(requestBody) {
     // Parses a string representation of the seconds since epoch into a number value
     return Number(requestBody.expires_on);
 }
-function prepareRequestOptions$5(resource, clientId) {
+function prepareRequestOptions$4(resource, clientId) {
     const queryParameters = {
         resource,
-        "api-version": "2019-07-01"
+        "api-version": "2019-07-01-preview"
     };
     if (clientId) {
         queryParameters.client_id = clientId;
@@ -1225,14 +1195,14 @@ function prepareRequestOptions$5(resource, clientId) {
         }
     };
 }
-// This credential can be easily tested by deploying a container to Azure Fabric with the Dockerfile:
+// This credential can be easily tested by deploying a container to Azure Service Fabric with the Dockerfile:
 //
 //   FROM node:12
 //   RUN wget https://host.any/path/bash.sh
 //   CMD ["bash", "bash.sh"]
 //
 // Where the bash script contains:
-// 
+//
 //   curl --insecure $IDENTITY_ENDPOINT'?api-version=2019-07-01-preview&resource=https://vault.azure.net/' -H "Secret: $IDENTITY_HEADER"
 //
 const fabricMsi = {
@@ -1244,19 +1214,19 @@ const fabricMsi = {
     },
     getToken(identityClient, resource, clientId, getTokenOptions = {}) {
         return tslib.__awaiter(this, void 0, void 0, function* () {
-            logger$b.info([
-                "Using the endpoint and the secret coming form the environment variables:",
+            logger$a.info([
+                "Using the endpoint and the secret coming from the environment variables:",
                 `IDENTITY_ENDPOINT=${process.env.IDENTITY_ENDPOINT},`,
                 "IDENTITY_HEADER=[REDACTED] and",
                 "IDENTITY_SERVER_THUMBPRINT=[REDACTED]."
             ].join(" "));
-            return msiGenericGetToken(identityClient, prepareRequestOptions$5(resource, clientId), expiresInParser$5, getTokenOptions);
+            return msiGenericGetToken(identityClient, prepareRequestOptions$4(resource, clientId), expiresInParser$4, getTokenOptions);
         });
     }
 };
 
 // Copyright (c) Microsoft Corporation.
-const logger$c = credentialLogger("ManagedIdentityCredential");
+const logger$b = credentialLogger("ManagedIdentityCredential");
 /**
  * Attempts authentication using a managed identity that has been assigned
  * to the deployment environment.  This authentication type works in Azure VMs,
@@ -1288,7 +1258,7 @@ class ManagedIdentityCredential {
             if (this.cachedMSI) {
                 return this.cachedMSI;
             }
-            const MSIs = [fabricMsi, appServiceMsi2019, appServiceMsi2017, cloudShellMsi, arcMsi, imdsMsi];
+            const MSIs = [fabricMsi, appServiceMsi2017, cloudShellMsi, arcMsi, imdsMsi];
             for (const msi of MSIs) {
                 if (yield msi.isAvailable(this.identityClient, resource, clientId, getTokenOptions)) {
                     this.cachedMSI = msi;
@@ -1350,7 +1320,7 @@ class ManagedIdentityCredential {
                         // It also means that the endpoint answered with either 200 or 201 (see the sendTokenRequest method),
                         // yet we had no access token. For this reason, we'll throw once with a specific message:
                         const error = new CredentialUnavailable("The managed identity endpoint was reached, yet no tokens were received.");
-                        logger$c.getToken.info(formatError(error));
+                        logger$b.getToken.info(formatError(error));
                         throw error;
                     }
                     // Since `authenticateManagedIdentity` didn't throw, and the result was not null,
@@ -1362,10 +1332,10 @@ class ManagedIdentityCredential {
                     // We've previously determined that the endpoint was unavailable,
                     // either because it was unreachable or permanently unable to authenticate.
                     const error = new CredentialUnavailable("The managed identity endpoint is not currently available");
-                    logger$c.getToken.info(formatError(error));
+                    logger$b.getToken.info(formatError(error));
                     throw error;
                 }
-                logger$c.getToken.info(formatSuccess(scopes));
+                logger$b.getToken.info(formatSuccess(scopes));
                 return result;
             }
             catch (err) {
@@ -1385,7 +1355,7 @@ class ManagedIdentityCredential {
                 });
                 if (err.code === "ENETUNREACH") {
                     const error = new CredentialUnavailable("ManagedIdentityCredential is unavailable. No managed identity endpoint found.");
-                    logger$c.getToken.info(formatError(error));
+                    logger$b.getToken.info(formatError(error));
                     throw error;
                 }
                 // If err.statusCode has a value of 400, it comes from sendTokenRequest,
@@ -1418,7 +1388,7 @@ function getSafeWorkingDir() {
         return "/bin";
     }
 }
-const logger$d = credentialLogger("AzureCliCredential");
+const logger$c = credentialLogger("AzureCliCredential");
 /**
  * This credential will use the currently logged-in user login information
  * via the Azure CLI ('az') commandline tool.
@@ -1460,12 +1430,12 @@ class AzureCliCredential {
         return tslib.__awaiter(this, void 0, void 0, function* () {
             return new Promise((resolve, reject) => {
                 const scope = typeof scopes === "string" ? scopes : scopes[0];
-                logger$d.getToken.info(`Using the scope ${scope}`);
+                logger$c.getToken.info(`Using the scope ${scope}`);
                 const resource = scope.replace(/\/.default$/, "");
                 // Check to make sure the scope we get back is a valid scope
                 if (!scope.match(/^[0-9a-zA-Z-.:/]+$/)) {
                     const error = new Error("Invalid scope was specified by the user or calling client");
-                    logger$d.getToken.info(formatError(error));
+                    logger$c.getToken.info(formatError(error));
                     throw error;
                 }
                 let responseData = "";
@@ -1478,22 +1448,22 @@ class AzureCliCredential {
                             obj.stderr.startsWith("'az' is not recognized");
                         if (isNotInstallError) {
                             const error = new CredentialUnavailable("Azure CLI could not be found.  Please visit https://aka.ms/azure-cli for installation instructions and then, once installed, authenticate to your Azure account using 'az login'.");
-                            logger$d.getToken.info(formatError(error));
+                            logger$c.getToken.info(formatError(error));
                             throw error;
                         }
                         else if (isLoginError) {
                             const error = new CredentialUnavailable("Please run 'az login' from a command prompt to authenticate before using this credential.");
-                            logger$d.getToken.info(formatError(error));
+                            logger$c.getToken.info(formatError(error));
                             throw error;
                         }
                         const error = new CredentialUnavailable(obj.stderr);
-                        logger$d.getToken.info(formatError(error));
+                        logger$c.getToken.info(formatError(error));
                         throw error;
                     }
                     else {
                         responseData = obj.stdout;
                         const response = JSON.parse(responseData);
-                        logger$d.getToken.info(formatSuccess(scopes));
+                        logger$c.getToken.info(formatSuccess(scopes));
                         const returnValue = {
                             token: response.accessToken,
                             expiresOnTimestamp: new Date(response.expiresOn).getTime()
@@ -1510,13 +1480,49 @@ class AzureCliCredential {
                         code,
                         message: err.message
                     });
-                    logger$d.getToken.info(formatError(err));
+                    logger$c.getToken.info(formatError(err));
                     reject(err);
                 });
             });
         });
     }
 }
+
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+/**
+ * The default client ID for authentication
+ * @internal
+ * @ignore
+ */
+// TODO: temporary - this is the Azure CLI clientID - we'll replace it when
+// Developer Sign On application is available
+// https://github.com/Azure/azure-sdk-for-net/blob/master/sdk/identity/Azure.Identity/src/Constants.cs#L9
+const DeveloperSignOnClientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
+/**
+ * The default tenant for authentication
+ * @internal
+ * @ignore
+ */
+const DefaultTenantId = "common";
+(function (AzureAuthorityHosts) {
+    /**
+     * China-based Azure Authority Host
+     */
+    AzureAuthorityHosts["AzureChina"] = "https://login.chinacloudapi.cn";
+    /**
+     * Germany-based Azure Authority Host
+     */
+    AzureAuthorityHosts["AzureGermany"] = "https://login.microsoftonline.de";
+    /**
+     * US Government Azure Authority Host
+     */
+    AzureAuthorityHosts["AzureGovernment"] = "https://login.microsoftonline.us";
+    /**
+     * Public Cloud Azure Authority Host
+     */
+    AzureAuthorityHosts["AzurePublicCloud"] = "https://login.microsoftonline.com";
+})(exports.AzureAuthorityHosts || (exports.AzureAuthorityHosts = {}));
 
 // Copyright (c) Microsoft Corporation.
 let keytar;
@@ -1529,7 +1535,7 @@ catch (er) {
 const CommonTenantId = "common";
 const AzureAccountClientId = "aebc6443-996d-45c2-90f0-388ff96faa56"; // VSC: 'aebc6443-996d-45c2-90f0-388ff96faa56'
 const VSCodeUserName = "VS Code Azure";
-const logger$e = credentialLogger("VisualStudioCodeCredential");
+const logger$d = credentialLogger("VisualStudioCodeCredential");
 // Map of unsupported Tenant IDs and the errors we will be throwing.
 const unsupportedTenantIds = {
     adfs: "The VisualStudioCodeCredential does not support authentication with ADFS tenants."
@@ -1541,6 +1547,12 @@ function checkUnsupportedTenant(tenantId) {
         throw new CredentialUnavailable(unsupportedTenantError);
     }
 }
+const mapVSCodeAuthorityHosts = {
+    AzureCloud: exports.AzureAuthorityHosts.AzurePublicCloud,
+    AzureChina: exports.AzureAuthorityHosts.AzureChina,
+    AzureGermanCloud: exports.AzureAuthorityHosts.AzureGermany,
+    AzureUSGovernment: exports.AzureAuthorityHosts.AzureGovernment
+};
 /**
  * Attempts to load a specific property from the VSCode configurations of the current OS.
  * If it fails at any point, returns undefined.
@@ -1570,7 +1582,7 @@ function getPropertyFromVSCode(property) {
         }
     }
     catch (e) {
-        logger$e.info(`Failed to load the Visual Studio Code configuration file. Error: ${e.message}`);
+        logger$d.info(`Failed to load the Visual Studio Code configuration file. Error: ${e.message}`);
         return;
     }
 }
@@ -1586,8 +1598,14 @@ class VisualStudioCodeCredential {
      * @param options Options for configuring the client which makes the authentication request.
      */
     constructor(options) {
-        this.identityClient = new IdentityClient(options);
+        // We want to make sure we use the one assigned by the user on the VSCode settings.
+        // Or just `AzureCloud` by default.
+        this.cloudName = (getPropertyFromVSCode("azure.cloud") || "AzureCloud");
+        // Picking an authority host based on the cloud name.
+        const authorityHost = mapVSCodeAuthorityHosts[this.cloudName];
+        this.identityClient = new IdentityClient(Object.assign({ authorityHost }, options));
         if (options && options.tenantId) {
+            checkTenantId(logger$d, options.tenantId);
             this.tenantId = options.tenantId;
         }
         else {
@@ -1636,7 +1654,7 @@ class VisualStudioCodeCredential {
             // Check to make sure the scope we get back is a valid scope
             if (!scopeString.match(/^[0-9a-zA-Z-.:/]+$/)) {
                 const error = new Error("Invalid scope was specified by the user or calling client");
-                logger$e.getToken.info(formatError(error));
+                logger$d.getToken.info(formatError(error));
                 throw error;
             }
             if (scopeString.indexOf("offline_access") < 0) {
@@ -1651,11 +1669,8 @@ class VisualStudioCodeCredential {
             //   /* ... */
             // ]
             const credentials = yield keytar.findCredentials(VSCodeUserName);
-            // We want to make sure we use the one assigned by the user on the VSCode settings.
-            // Or just `Azure` by default.
-            const cloudName = getPropertyFromVSCode("azure.cloud") || "Azure";
             // If we can't find the credential based on the name, we'll pick the first one available.
-            const { password } = credentials.find((cred) => cred.account === cloudName) ||
+            const { password } = credentials.find((cred) => cred.account === this.cloudName) ||
                 credentials[0] ||
                 {};
             // Assuming we found something, the refresh token is the "password" property.
@@ -1663,18 +1678,18 @@ class VisualStudioCodeCredential {
             if (refreshToken) {
                 const tokenResponse = yield this.identityClient.refreshAccessToken(this.tenantId, AzureAccountClientId, scopeString, refreshToken, undefined);
                 if (tokenResponse) {
-                    logger$e.getToken.info(formatSuccess(scopes));
+                    logger$d.getToken.info(formatSuccess(scopes));
                     return tokenResponse.accessToken;
                 }
                 else {
                     const error = new CredentialUnavailable("Could not retrieve the token associated with Visual Studio Code. Have you connected using the 'Azure Account' extension recently?");
-                    logger$e.getToken.info(formatError(error));
+                    logger$d.getToken.info(formatError(error));
                     throw error;
                 }
             }
             else {
                 const error = new CredentialUnavailable("Could not retrieve the token associated with Visual Studio Code. Did you connect using the 'Azure Account' extension?");
-                logger$e.getToken.info(formatError(error));
+                logger$d.getToken.info(formatError(error));
                 throw error;
             }
         });
@@ -1715,40 +1730,84 @@ class DefaultAzureCredential extends ChainedTokenCredential {
 }
 
 // Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-/**
- * The default client ID for authentication
- * @internal
- * @ignore
- */
-// TODO: temporary - this is the Azure CLI clientID - we'll replace it when
-// Developer Sign On application is available
-// https://github.com/Azure/azure-sdk-for-net/blob/master/sdk/identity/Azure.Identity/src/Constants.cs#L9
-const DeveloperSignOnClientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
-/**
- * The default tenant for authentication
- * @internal
- * @ignore
- */
-const DefaultTenantId = "common";
-(function (AzureAuthorityHosts) {
-    /**
-     * China-based Azure Authority Host
-     */
-    AzureAuthorityHosts["AzureChina"] = "https://login.chinacloudapi.cn";
-    /**
-     * Germany-based Azure Authority Host
-     */
-    AzureAuthorityHosts["AzureGermany"] = "https://login.microsoftonline.de";
-    /**
-     * US Government Azure Authority Host
-     */
-    AzureAuthorityHosts["AzureGovernment"] = "https://login.microsoftonline.us";
-    /**
-     * Public Cloud Azure Authority Host
-     */
-    AzureAuthorityHosts["AzurePublicCloud"] = "https://login.microsoftonline.com";
-})(exports.AzureAuthorityHosts || (exports.AzureAuthorityHosts = {}));
+const logger$e = credentialLogger("InteractiveBrowserCredential");
+class AuthenticationRequired extends CredentialUnavailable {
+}
+class MsalClient {
+    constructor(msalConfig, persistenceEnabled, authenticationRecord, options) {
+        this.identityClient = new IdentityClient(options);
+        this.msalConfig = msalConfig;
+        this.persistenceEnabled = persistenceEnabled;
+        this.authenticationRecord = authenticationRecord;
+    }
+    prepareClientApplications() {
+        return tslib.__awaiter(this, void 0, void 0, function* () {
+            // If we've already initialized the public client application, return
+            if (this.pca) {
+                return;
+            }
+            // Construct the public client application, since it hasn't been initialized, yet
+            const clientConfig = {
+                auth: this.msalConfig,
+                cache: undefined,
+                system: { networkClient: this.identityClient }
+            };
+            this.pca = new msalNode.PublicClientApplication(clientConfig);
+        });
+    }
+    acquireTokenFromCache(scopes) {
+        return tslib.__awaiter(this, void 0, void 0, function* () {
+            yield this.prepareClientApplications();
+            if (!this.persistenceEnabled || !this.authenticationRecord) {
+                throw new AuthenticationRequired();
+            }
+            const silentRequest = {
+                account: this.authenticationRecord,
+                scopes
+            };
+            try {
+                const response = yield this.pca.acquireTokenSilent(silentRequest);
+                logger$e.info("Successful silent token acquisition");
+                return {
+                    expiresOnTimestamp: response.expiresOn.getTime(),
+                    token: response.accessToken
+                };
+            }
+            catch (e) {
+                throw new AuthenticationRequired("Could not authenticate silently using the cache");
+            }
+        });
+    }
+    getAuthCodeUrl(request) {
+        return tslib.__awaiter(this, void 0, void 0, function* () {
+            yield this.prepareClientApplications();
+            return this.pca.getAuthCodeUrl(request);
+        });
+    }
+    acquireTokenByCode(request) {
+        return tslib.__awaiter(this, void 0, void 0, function* () {
+            yield this.prepareClientApplications();
+            return this.pca.acquireTokenByCode(request);
+        });
+    }
+    acquireTokenByDeviceCode(request) {
+        return tslib.__awaiter(this, void 0, void 0, function* () {
+            yield this.prepareClientApplications();
+            return this.pca.acquireTokenByDeviceCode(request);
+        });
+    }
+    acquireTokenByClientCredential(request) {
+        return tslib.__awaiter(this, void 0, void 0, function* () {
+            yield this.prepareClientApplications();
+            return this.cca.acquireTokenByClientCredential(request);
+        });
+    }
+}
+var HttpMethod;
+(function (HttpMethod) {
+    HttpMethod["GET"] = "get";
+    HttpMethod["POST"] = "post";
+})(HttpMethod || (HttpMethod = {}));
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -41273,8 +41332,6 @@ var express$1 = express;
 
 // Copyright (c) Microsoft Corporation.
 const logger$f = credentialLogger("InteractiveBrowserCredential");
-class AuthenticationRequired extends CredentialUnavailable {
-}
 /**
  * Enables authentication to Azure Active Directory inside of the web browser
  * using the interactive login flow, either via browser redirects or a popup
@@ -41282,12 +41339,11 @@ class AuthenticationRequired extends CredentialUnavailable {
  */
 class InteractiveBrowserCredential {
     constructor(options) {
-        this.identityClient = new IdentityClient(options);
-        this.tenantId = (options && options.tenantId) || DefaultTenantId;
-        this.clientId = (options && options.clientId) || DeveloperSignOnClientId;
-        // Future update: this is for persistent caching
-        this.persistenceEnabled = this.persistenceEnabled = (options === null || options === void 0 ? void 0 : options.cacheOptions) !== undefined;
-        this.authenticationRecord = options === null || options === void 0 ? void 0 : options.authenticationRecord;
+        const tenantId = (options && options.tenantId) || DefaultTenantId;
+        const clientId = (options && options.clientId) || DeveloperSignOnClientId;
+        checkTenantId(logger$f, tenantId);
+        // const persistenceEnabled = options?.persistenceEnabled ? options?.persistenceEnabled : false;
+        // const authenticationRecord = options?.authenticationRecord;
         if (options && options.redirectUri) {
             if (typeof options.redirectUri === "string") {
                 this.redirectUri = options.redirectUri;
@@ -41304,29 +41360,19 @@ class InteractiveBrowserCredential {
         if (isNaN(this.port)) {
             this.port = 80;
         }
+        let authorityHost;
         if (options && options.authorityHost) {
             if (options.authorityHost.endsWith("/")) {
-                this.authorityHost = options.authorityHost + this.tenantId;
+                authorityHost = options.authorityHost + tenantId;
             }
             else {
-                this.authorityHost = options.authorityHost + "/" + this.tenantId;
+                authorityHost = options.authorityHost + "/" + tenantId;
             }
         }
         else {
-            this.authorityHost = "https://login.microsoftonline.com/" + this.tenantId;
+            authorityHost = "https://login.microsoftonline.com/" + tenantId;
         }
-        const knownAuthorities = this.tenantId === "adfs" ? [this.authorityHost] : [];
-        const publicClientConfig = {
-            auth: {
-                clientId: this.clientId,
-                authority: this.authorityHost,
-                knownAuthorities: knownAuthorities
-            },
-            cache: options === null || options === void 0 ? void 0 : options.cacheOptions,
-            system: { networkClient: this.identityClient }
-        };
-        this.pca = new msalNode.PublicClientApplication(publicClientConfig);
-        this.msalCacheManager = this.pca.getTokenCache();
+        this.msalClient = new MsalClient({ clientId, authority: authorityHost }, false, undefined, options);
     }
     /**
      * Authenticates with Azure Active Directory and returns an access token if
@@ -41340,37 +41386,13 @@ class InteractiveBrowserCredential {
      */
     getToken(scopes, _options) {
         const scopeArray = typeof scopes === "object" ? scopes : [scopes];
-        if (this.authenticationRecord && this.persistenceEnabled) {
-            return this.acquireTokenFromCache().catch((e) => {
-                if (e instanceof AuthenticationRequired) {
-                    return this.acquireTokenFromBrowser(scopeArray);
-                }
-                else {
-                    throw e;
-                }
-            });
-        }
-        else {
-            return this.acquireTokenFromBrowser(scopeArray);
-        }
-    }
-    acquireTokenFromCache() {
-        return tslib.__awaiter(this, void 0, void 0, function* () {
-            yield this.msalCacheManager.readFromPersistence();
-            const silentRequest = {
-                account: this.authenticationRecord,
-                scopes: ["https://vault.azure.net/user_impersonation", "https://vault.azure.net/.default"]
-            };
-            try {
-                const response = yield this.pca.acquireTokenSilent(silentRequest);
-                logger$f.info("Successful silent token acquisition");
-                return {
-                    expiresOnTimestamp: response.expiresOn.getTime(),
-                    token: response.accessToken
-                };
+        return this.msalClient.acquireTokenFromCache(scopeArray).catch((e) => {
+            if (e instanceof AuthenticationRequired) {
+                return this.acquireTokenFromBrowser(scopeArray);
             }
-            catch (e) {
-                throw new AuthenticationRequired("Could not authenticate silently using the cache");
+            else {
+                logger$f.getToken.info(formatError(e));
+                throw e;
             }
         });
     }
@@ -41380,11 +41402,8 @@ class InteractiveBrowserCredential {
                 scopes: scopeArray,
                 redirectUri: this.redirectUri
             };
-            const response = yield this.pca.getAuthCodeUrl(authCodeUrlParameters);
+            const response = yield this.msalClient.getAuthCodeUrl(authCodeUrlParameters);
             yield open(response);
-            if (this.persistenceEnabled) {
-                yield this.msalCacheManager.readFromPersistence();
-            }
         });
     }
     acquireTokenFromBrowser(scopeArray) {
@@ -41411,19 +41430,20 @@ class InteractiveBrowserCredential {
                         scopes: scopeArray
                     };
                     try {
-                        const authResponse = yield this.pca.acquireTokenByCode(tokenRequest);
-                        res.sendStatus(200);
-                        if (this.persistenceEnabled) {
-                            this.msalCacheManager.writeToPersistence();
-                        }
+                        const authResponse = yield this.msalClient.acquireTokenByCode(tokenRequest);
+                        const successMessage = formatSuccess(`Authentication Complete. You can close the browser and return to the application. Scopes: ${scopeArray.join(", ")}. Expires on timestamp: ${authResponse === null || authResponse === void 0 ? void 0 : authResponse.expiresOn.valueOf()}`);
+                        res.status(200).send(successMessage);
+                        logger$f.getToken.info(successMessage);
                         resolve({
                             expiresOnTimestamp: authResponse.expiresOn.valueOf(),
                             token: authResponse.accessToken
                         });
                     }
                     catch (error) {
-                        res.status(500).send(error);
-                        reject(new Error(`Authentication Error "${req.query["error"]}":\n\n${req.query["error_description"]}`));
+                        const errorMessage = `Authentication Error "${req.query["error"]}":\n\n${req.query["error_description"]}. Scopes: ${scopeArray.join(", ")}.`;
+                        res.status(500).send(formatError(errorMessage));
+                        logger$f.getToken.info(formatError(errorMessage));
+                        reject(new Error(errorMessage));
                     }
                     finally {
                         cleanup();
@@ -41461,39 +41481,30 @@ class DeviceCodeCredential {
      * to initiate the device code authorization flow with Azure Active Directory.
      *
      * @param tenantId The Azure Active Directory tenant (directory) ID or name.
+     *                 The default value is 'organizations'.
      *                 'organizations' may be used when dealing with multi-tenant scenarios.
      * @param clientId The client (application) ID of an App Registration in the tenant.
+     *                 By default we will try to use the Azure CLI's client ID to authenticate.
      * @param userPromptCallback A callback function that will be invoked to show
                                  {@link DeviceCodeInfo} to the user. If left unassigned, we will automatically log the device code information and the authentication instructions in the console.
      * @param options Options for configuring the client which makes the authentication request.
      */
-    constructor(tenantId, clientId, userPromptCallback = defaultDeviceCodePromptCallback, options) {
-        this.tenantId = tenantId;
-        this.clientId = clientId;
+    constructor(tenantId = "organizations", clientId = DeveloperSignOnClientId, userPromptCallback = defaultDeviceCodePromptCallback, options) {
+        checkTenantId(logger$g, tenantId);
         this.userPromptCallback = userPromptCallback;
+        let authorityHost;
         if (options && options.authorityHost) {
             if (options.authorityHost.endsWith("/")) {
-                this.authorityHost = options.authorityHost + this.tenantId;
+                authorityHost = options.authorityHost + tenantId;
             }
             else {
-                this.authorityHost = options.authorityHost + "/" + this.tenantId;
+                authorityHost = options.authorityHost + "/" + tenantId;
             }
         }
         else {
-            this.authorityHost = "https://login.microsoftonline.com/" + this.tenantId;
+            authorityHost = "https://login.microsoftonline.com/" + tenantId;
         }
-        const knownAuthorities = this.tenantId === "adfs" ? [this.authorityHost] : [];
-        const publicClientConfig = {
-            auth: {
-                clientId: this.clientId,
-                authority: this.authorityHost,
-                knownAuthorities: knownAuthorities
-            },
-            cache: {
-                cachePlugin: undefined
-            }
-        };
-        this.pca = new msalNode.PublicClientApplication(publicClientConfig);
+        this.msalClient = new MsalClient({ clientId: clientId, authority: authorityHost }, false, undefined, options);
     }
     /**
      * Authenticates with Azure Active Directory and returns an access token if
@@ -41506,35 +41517,50 @@ class DeviceCodeCredential {
      *                TokenCredential implementation might make.
      */
     getToken(scopes, options) {
-        const { span } = createSpan("DeviceCodeCredential-getToken", options);
-        const scopeArray = typeof scopes === "object" ? scopes : [scopes];
-        const deviceCodeRequest = {
-            deviceCodeCallback: this.userPromptCallback,
-            scopes: scopeArray
-        };
-        logger$g.info("Sending devicecode request");
-        try {
-            return this.acquireTokenByDeviceCode(deviceCodeRequest);
-        }
-        catch (err) {
-            const code = err.name === AuthenticationErrorName
-                ? api.CanonicalCode.UNAUTHENTICATED
-                : api.CanonicalCode.UNKNOWN;
-            span.setStatus({
-                code,
-                message: err.message
-            });
-            logger$g.getToken.info(err);
-            throw err;
-        }
-        finally {
-            span.end();
-        }
+        return tslib.__awaiter(this, void 0, void 0, function* () {
+            const { span } = createSpan("DeviceCodeCredential-getToken", options);
+            const scopeArray = typeof scopes === "object" ? scopes : [scopes];
+            const deviceCodeRequest = {
+                deviceCodeCallback: this.userPromptCallback,
+                scopes: scopeArray
+            };
+            logger$g.info(`DeviceCodeCredential invoked. Scopes: ${scopeArray.join(", ")}`);
+            try {
+                return this.msalClient.acquireTokenFromCache(scopeArray);
+            }
+            catch (e) {
+                if (e instanceof AuthenticationRequired) {
+                    try {
+                        const token = yield this.acquireTokenByDeviceCode(deviceCodeRequest, scopeArray);
+                        logger$g.info(formatSuccess(`DeviceCodeCredential successfully retrieved the access token. Scopes: ${scopeArray.join(", ")}. Expires on timestamp: ${token === null || token === void 0 ? void 0 : token.expiresOnTimestamp}`));
+                        return token;
+                    }
+                    catch (err) {
+                        const code = err.name === AuthenticationErrorName
+                            ? api.CanonicalCode.UNAUTHENTICATED
+                            : api.CanonicalCode.UNKNOWN;
+                        span.setStatus({
+                            code,
+                            message: err.message
+                        });
+                        logger$g.getToken.info(formatError(`DeviceCodeCredential was unable to retrieve an access token. Scopes: ${scopeArray.join(", ")}. Error: ${err.message}`));
+                        throw err;
+                    }
+                    finally {
+                        span.end();
+                    }
+                }
+                else {
+                    throw e;
+                }
+            }
+        });
     }
-    acquireTokenByDeviceCode(deviceCodeRequest) {
+    acquireTokenByDeviceCode(deviceCodeRequest, scopes) {
         return tslib.__awaiter(this, void 0, void 0, function* () {
             try {
-                const deviceResponse = yield this.pca.acquireTokenByDeviceCode(deviceCodeRequest);
+                const deviceResponse = yield this.msalClient.acquireTokenByDeviceCode(deviceCodeRequest);
+                logger$g.getToken.info(formatSuccess(scopes));
                 return {
                     expiresOnTimestamp: deviceResponse.expiresOn.getTime(),
                     token: deviceResponse.accessToken
@@ -41563,6 +41589,7 @@ class AuthorizationCodeCredential {
      */
     constructor(tenantId, clientId, clientSecretOrAuthorizationCode, authorizationCodeOrRedirectUri, redirectUriOrOptions, options) {
         this.lastTokenResponse = null;
+        checkTenantId(logger$h, tenantId);
         this.clientId = clientId;
         this.tenantId = tenantId;
         if (typeof redirectUriOrOptions === "string") {
