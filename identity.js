@@ -900,7 +900,8 @@ class EnvironmentCredential {
 const DefaultScopeSuffix = "/.default";
 const imdsEndpoint = "http://169.254.169.254/metadata/identity/oauth2/token";
 const imdsApiVersion = "2018-02-01";
-const azureArcAPIVersion = "2019-08-15";
+const azureArcAPIVersion = "2020-06-01";
+const azureFabricVersion = "2019-07-01-preview";
 
 // Copyright (c) Microsoft Corporation.
 function mapScopesToResource(scopes) {
@@ -1180,7 +1181,7 @@ function expiresInParser$4(requestBody) {
 function prepareRequestOptions$4(resource, clientId) {
     const queryParameters = {
         resource,
-        "api-version": "2019-07-01-preview"
+        "api-version": azureFabricVersion
     };
     if (clientId) {
         queryParameters.client_id = clientId;
@@ -41431,19 +41432,17 @@ class InteractiveBrowserCredential {
                     };
                     try {
                         const authResponse = yield this.msalClient.acquireTokenByCode(tokenRequest);
-                        const successMessage = formatSuccess(`Authentication Complete. You can close the browser and return to the application. Scopes: ${scopeArray.join(", ")}. Expires on timestamp: ${authResponse === null || authResponse === void 0 ? void 0 : authResponse.expiresOn.valueOf()}`);
-                        res.status(200).send(successMessage);
-                        logger$f.getToken.info(successMessage);
+                        res.sendStatus(200);
+                        logger$f.getToken.info(formatSuccess(scopeArray));
                         resolve({
                             expiresOnTimestamp: authResponse.expiresOn.valueOf(),
                             token: authResponse.accessToken
                         });
                     }
                     catch (error) {
-                        const errorMessage = `Authentication Error "${req.query["error"]}":\n\n${req.query["error_description"]}. Scopes: ${scopeArray.join(", ")}.`;
-                        res.status(500).send(formatError(errorMessage));
-                        logger$f.getToken.info(formatError(errorMessage));
-                        reject(new Error(errorMessage));
+                        res.status(500).send(error);
+                        logger$f.getToken.info(formatError(error));
+                        reject(new Error(`Authentication Error "${req.query["error"]}":\n\n${req.query["error_description"]}`));
                     }
                     finally {
                         cleanup();
@@ -41517,42 +41516,35 @@ class DeviceCodeCredential {
      *                TokenCredential implementation might make.
      */
     getToken(scopes, options) {
-        return tslib.__awaiter(this, void 0, void 0, function* () {
-            const { span } = createSpan("DeviceCodeCredential-getToken", options);
-            const scopeArray = typeof scopes === "object" ? scopes : [scopes];
-            const deviceCodeRequest = {
-                deviceCodeCallback: this.userPromptCallback,
-                scopes: scopeArray
-            };
-            logger$g.info(`DeviceCodeCredential invoked. Scopes: ${scopeArray.join(", ")}`);
-            try {
-                return this.msalClient.acquireTokenFromCache(scopeArray);
+        const { span } = createSpan("DeviceCodeCredential-getToken", options);
+        const scopeArray = typeof scopes === "object" ? scopes : [scopes];
+        const deviceCodeRequest = {
+            deviceCodeCallback: this.userPromptCallback,
+            scopes: scopeArray
+        };
+        logger$g.info("Sending devicecode request");
+        return this.msalClient.acquireTokenFromCache(scopeArray).catch((e) => {
+            if (e instanceof AuthenticationRequired) {
+                try {
+                    return this.acquireTokenByDeviceCode(deviceCodeRequest, scopeArray);
+                }
+                catch (err) {
+                    const code = err.name === AuthenticationErrorName
+                        ? api.CanonicalCode.UNAUTHENTICATED
+                        : api.CanonicalCode.UNKNOWN;
+                    span.setStatus({
+                        code,
+                        message: err.message
+                    });
+                    logger$g.getToken.info(formatError(err));
+                    throw err;
+                }
+                finally {
+                    span.end();
+                }
             }
-            catch (e) {
-                if (e instanceof AuthenticationRequired) {
-                    try {
-                        const token = yield this.acquireTokenByDeviceCode(deviceCodeRequest, scopeArray);
-                        logger$g.info(formatSuccess(`DeviceCodeCredential successfully retrieved the access token. Scopes: ${scopeArray.join(", ")}. Expires on timestamp: ${token === null || token === void 0 ? void 0 : token.expiresOnTimestamp}`));
-                        return token;
-                    }
-                    catch (err) {
-                        const code = err.name === AuthenticationErrorName
-                            ? api.CanonicalCode.UNAUTHENTICATED
-                            : api.CanonicalCode.UNKNOWN;
-                        span.setStatus({
-                            code,
-                            message: err.message
-                        });
-                        logger$g.getToken.info(formatError(`DeviceCodeCredential was unable to retrieve an access token. Scopes: ${scopeArray.join(", ")}. Error: ${err.message}`));
-                        throw err;
-                    }
-                    finally {
-                        span.end();
-                    }
-                }
-                else {
-                    throw e;
-                }
+            else {
+                throw e;
             }
         });
     }

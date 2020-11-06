@@ -41,6 +41,33 @@ app.get('/curl1', async (req, res) => {
   res.send(message.join("\n<br/>\n"));
 });
 
+app.get('/fabric-curl', async (req, res) => {
+  const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT;
+  const IDENTITY_HEADER = process.env.IDENTITY_HEADER;
+  const IDENTITY_SERVER_THUMBPRINT = process.env.IDENTITY_SERVER_THUMBPRINT;
+
+  let message = [
+    `IDENTITY_ENDPOINT ${IDENTITY_ENDPOINT}`,
+    `IDENTITY_HEADER ${IDENTITY_HEADER}`,
+    `IDENTITY_SERVER_THUMBPRINT ${IDENTITY_SERVER_THUMBPRINT}`
+  ];
+
+  let response = child_process.execSync(`echo "test"`, { encoding: "utf-8" });
+  message.push(`RESPONSE test: ${response}`)
+
+  response = child_process.execSync(`curl --insecure "${IDENTITY_ENDPOINT}?client_id=${AZURE_CLIENT_ID}&api-version=2019-07-01-preview&resource=https://vault.azure.net/" -H "Secret: ${IDENTITY_HEADER}"`, { encoding: "utf-8" });
+  message.push(`RESPONSE1: ${response}`)
+
+  const env = process.env;
+
+  message.push(`fabricMsi`, Boolean(env.IDENTITY_ENDPOINT && env.IDENTITY_HEADER && env.IDENTITY_SERVER_THUMBPRINT));
+  message.push(`appServiceMsi2019`, Boolean(env.IDENTITY_ENDPOINT && env.IDENTITY_HEADER));
+  message.push(`appServiceMsi2017`, Boolean(env.MSI_ENDPOINT && env.MSI_SECRET));
+  message.push(`cloudShellMsi`, Boolean(process.env.MSI_ENDPOINT));
+
+  res.send(message.join("\n<br/>\n"));
+});
+
 // Fails: explicitly set AZURE_CLIENT_ID
 app.get('/repro1', async (req, res) => {
   try {
@@ -90,5 +117,5 @@ app.get('/workaround2', async (req, res) => {
 });
 
 
-app.listen(8080, '0.0.0.0');
+app.listen(80);
 console.log('started server');
