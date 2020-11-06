@@ -116,6 +116,13 @@ app.get('/workaround2', async (req, res) => {
   res.send('OK!');
 });
 
+// For bug 11595:
+// - Use port 8080.
+// - docker build --no-cache -t ghcr.io/sadasant/credential-bug-repro .
+// - docker push ghcr.io/sadasant/credential-bug-repro:latest
+// app.listen(8080);
 
+// For service fabric, use 80.
 app.listen(80);
+
 console.log('started server');
