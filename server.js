@@ -7,6 +7,9 @@ app.get('/', (req, res) => {
   res.send('Hello world!');
 });
 
+// Fabric fix
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = 0;
+
 app.get('/curl1', async (req, res) => {
   const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT;
   const IDENTITY_HEADER = process.env.IDENTITY_HEADER;
