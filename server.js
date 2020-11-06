@@ -61,6 +61,7 @@ app.get('/fabric-curl', async (req, res) => {
   const env = process.env;
 
   message.push(`fabricMsi`, Boolean(env.IDENTITY_ENDPOINT && env.IDENTITY_HEADER && env.IDENTITY_SERVER_THUMBPRINT));
+  message.push(`arcMsi`, Boolean(env.IMDS_ENDPOINT && env.IDENTITY_ENDPOINT));
   message.push(`appServiceMsi2019`, Boolean(env.IDENTITY_ENDPOINT && env.IDENTITY_HEADER));
   message.push(`appServiceMsi2017`, Boolean(env.MSI_ENDPOINT && env.MSI_SECRET));
   message.push(`cloudShellMsi`, Boolean(process.env.MSI_ENDPOINT));
