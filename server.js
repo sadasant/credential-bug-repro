@@ -52,11 +52,12 @@ app.get('/fabric-curl', async (req, res) => {
     `IDENTITY_SERVER_THUMBPRINT ${IDENTITY_SERVER_THUMBPRINT}`
   ];
 
-  let response = child_process.execSync(`echo "test"`, { encoding: "utf-8" });
-  message.push(`RESPONSE test: ${response}`)
-
-  response = child_process.execSync(`curl --insecure "${IDENTITY_ENDPOINT}?client_id=${AZURE_CLIENT_ID}&api-version=2019-07-01-preview&resource=https://vault.azure.net/" -H "Secret: ${IDENTITY_HEADER}"`, { encoding: "utf-8" });
-  message.push(`RESPONSE1: ${response}`)
+  try {
+    let response = child_process.execSync(`curl --insecure "${IDENTITY_ENDPOINT}?client_id=${AZURE_CLIENT_ID}&api-version=2019-07-01-preview&resource=https://vault.azure.net/" -H "Secret: ${IDENTITY_HEADER}"`, { encoding: "utf-8" });
+    message.push(`RESPONSE1: ${response}`)
+  } catch(e) {
+    message.push(`curl failed`, e);
+  }
 
   const env = process.env;
 
