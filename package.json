@@ -19,7 +19,7 @@
   },
   "homepage": "https://github.com/noelbundick/credential-bug-repro#readme",
   "dependencies": {
-    "@azure/identity": "^1.2.0-beta.2",
+    "@azure/identity": "./azure-identity-1.2.0.tgz",
     "express": "^4.17.1"
   }
 }
